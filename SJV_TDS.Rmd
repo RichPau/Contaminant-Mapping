@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Set wd(), load requried packages, and load data
 ```{r set wd, load required packages, and load data}
-setwd("C:/Users/rpauloo/Desktop/GW Qual/GIS workshop 2017")
+setwd("E:/rpauloo/Documents/GitHub/Contaminant-Mapping")
 
 required.packages <- c("sp", "XML", "rgdal", "rgeos", "raster", 
                        "dismo", "leaflet", "RColorBrewer", "classInt")
@@ -22,51 +22,55 @@ lapply(required.packages, library, character.only = TRUE)
 dat = read.csv(file = "tulare_gw_qual_subset.csv", stringsAsFactors = FALSE)
 ```
 
+
 ## Explore by plotting data
 ```{r explore by plotting data}
 plot(dat$DEC_LONG_VA, dat$DEC_LAT_VA)
 ```
 
-## Create spatial points df
+
+## Data Analysis and creation of spatial points df
 ```{r create spatial points df}
 well_coords = cbind(dat$DEC_LONG_VA, dat$DEC_LAT_VA)
 pts = SpatialPoints(well_coords) # still needs a CRS (coordinate reference system)
 df = dat[,1:6]
-```
-
-## Data Analysis
-```{r data analysis}
-# add a level to df that indicates if the change in TDS is + (pos) or - (neg)
-df$direction = as.factor(ifelse(df$P70300_CY2 > df$P70300_CY1, "pos", "neg"))
-# calculate decadal change in TDS
-df$dec_change = df[, 6] - df[, 4] 
-# define radius size based on absolute TDS change
-small = abs(df$dec_change) < 9.99 # small changes
-medium = abs(df$dec_change) > 9.99 & abs(df$dec_change) < 99.99 # medium changes
-large = abs(df$dec_change) > 99.99 # large changes
-
-## substitute TRUE values from logical indexing with numeric radius sizes for plotting
-w = as.numeric(sub("TRUE", 5, small))
-y = as.numeric(sub("TRUE", 10, medium))
-z = as.numeric(sub("TRUE", 15, large))
-## create sizes data frame and then radius column in df 
-sizes = cbind(w,y,z)
-df$radius = rowSums(sizes[,1:3], na.rm = TRUE)
-
+df$dec_change = df[, 6] - df[, 4]
 # create spatial points data frame
 ptsdf = SpatialPointsDataFrame(pts, data = df)
 ```
 
+
+## Define color palette
+```{r define color palette}
+co = c("blue", "steelblue2", "seashell1", "orangered2", "red")
+pal = colorNumeric(palette = co, 
+                   domain = df$dec_change)
+```
+
+
 ## Create map
-```{r}
-map = leaflet(data = ptsdf)  #%>% setView(lng = -158, lat = 21.5, zoom = 8) # I set the view because the automatic view given my dataset would be all Hawaiian islands
-map = addTiles(map) # add tiles for zooming
-map = addCircleMarkers(map,
-    lng = well_coords[,1], 
-    lat = well_coords[,2],
-    radius = df$radius,
-    color = ifelse(ptsdf$direction == "pos", "red", "blue"),
-    stroke = FALSE, fillOpacity = 0.5,
-    popup = paste(as.character(ptsdf$dec_change), "mg/L TDS", by = " "))
-map
+```{r create map}
+map = leaflet(data = ptsdf) 
+map = addTiles(map)
+map %>%
+  addCircleMarkers(map,
+    lng = well_coords[,1], # longitude
+    lat = well_coords[,2], # latitude
+    radius = 8, # fixed radius size
+    color = ~pal(dec_change),
+    stroke = FALSE, 
+    fillOpacity = 0.9,
+    popup = paste(as.character(ptsdf$dec_change), 
+                  "mg/L TDS", 
+                  by = " ")
+  ) %>%
+  
+  addLegend("topright", pal = pal,
+            values = ~dec_change,
+            title = "10yr change in GW TDS",
+            labFormat = labelFormat(suffix = " mg/L"),
+            opacity = 1
+  ) %>%
+  
+  addProviderTiles(providers$Esri.WorldTerrain) # override default map
 ```
