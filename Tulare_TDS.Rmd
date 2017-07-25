@@ -1,0 +1,156 @@
+---
+title: "Tulare_TDS"
+author: "Rich Pauloo"
+date: "July 23, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Tulare Basin Inorganic Water Quality Map
+
+## Set working directory, load requried packages, and load data
+```{r set wd, load required packages, and load data}
+setwd("E:/rpauloo/Documents/GitHub/Contaminant-Mapping")
+
+required.packages <- c("sp", "XML", "rgdal", "rgeos", "raster", "ggplot2", 
+                       "dismo", "leaflet", "RColorBrewer", "classInt")
+lapply(required.packages, require, character.only = TRUE)
+
+dat = read.csv(file = "TDS_Features_Tulare_Clip_TableToExcel.csv", stringsAsFactors = FALSE)
+colnames(dat)
+dat = dat[, c("Well_ID", "IAZ", "Database", "Samp_Date", 
+              "Year", "Time_perio", "Result", "Latitude",
+              "Longitude", "Depth_ft", "Well_Type", "DepthClass")]
+```
+
+
+## Clean Data
+```{r Clean data}
+library(plyr)
+str(dat)
+
+# create logical arrays to define sampling time intervals
+time1 = ifelse(dat$Year <= 1940, 1, NA) # 160 records from 1902-1940
+time2 = ifelse(dat$Year > 1940 & dat$Year <= 1980, 1, NA) # 19,894 records from 1940-1980
+time3 = ifelse(dat$Year > 1980, 1, NA) # 34,117 records from 1980-2014
+
+lapply(list(time1, time2, time3), sum, na.rm = TRUE)
+
+# substitute logical values from time1, time2, time3 with character vectors for plyr
+time1 = as.numeric(time1)
+time2 = as.numeric(sub(1, 2, time2))
+time3 = as.numeric(sub(1, 3, time3))
+tframe = cbind(time1, time2, time3)
+tframe = rowSums(tframe[,1:3], na.rm = TRUE)
+
+# ensure all values are in tframe
+unique(tframe)
+table(tframe)
+head(dat)
+# add tframe to dat
+dat$tframe = tframe
+
+# filter for Shallow and Deep depth class
+unique(dat$DepthClass) # need to get rid of unknown values
+fildat = subset(dat, DepthClass == "Deep" | DepthClass == "Shallow") # subset deep/shallow
+unique(fildat$DepthClass) # shows that Deep and Shallow are the only depth classes now
+nrow(dat) - nrow(fildat) # trimmed 23,209 observations without a depth class
+
+# ddply by well_ID, year, depthclass, and tframe and take Result means 
+columns = c("Well_ID", "DepthClass", "tframe", "Latitude", "Longitude")
+plydat = ddply(fildat, columns, summarize, Result = round(mean(Result), digits=2))
+head(plydat)
+```
+
+
+## Data Analysis and creation of spatial points df
+```{r create spatial points df}
+well_coords = cbind(plydat$Longitude, plydat$Latitude)
+pts = SpatialPoints(well_coords)
+# deinfe color palette to be used. blue values correspond to fresh water, red to salty water
+co = c("blue","steelblue2","seashell1","orangered2","red")
+```
+
+
+## Histogram of all results
+#### Data is heavily skewed to the right. This skew blurs interesting data in the freshwater 0 - 1,000 mg/L range. Bin sizes in the final map should reflect this distribution of data and not bias the graph towards the outliers. A lognormal plot is insufficient because TDS is typically not reported in log scale.
+```{r Histogram of all results}
+ggplot(plydat, aes(Result)) + 
+  geom_histogram(binwidth = 100) + 
+  xlab("TDS (mg/L)") +
+  ggtitle("Histogram of TDS observations in the Tulare Basin (1902-2014)") +
+  theme_bw()
+```
+
+
+## Map Function
+```{r map function}
+# filter plydat for only observations in time frame t and depth class d
+map.TDS = function(t, d){
+t.dc = plydat[, c(1:3,6)]
+t.dc = subset(t.dc, DepthClass == d & 
+                    tframe == t) # remove lat and long from df, and filter for desired results
+
+# create logical vector for all t and d indexes to extract coordinates of these observations
+t.dc.pts = ifelse(plydat$DepthClass == d & 
+                  plydat$tframe == t, TRUE, FALSE)
+
+# use logical vector to subset well_coords, and create spatial points data frame for time frame t and depth d
+ptsdf = SpatialPointsDataFrame(pts[t.dc.pts , ], data = t.dc)
+
+# define palette based on time frame t and depth class d observations
+# set bins with a vector of breaks, so they are fine from 0 - 1,000 and coarse from 1,000 - 50,000
+pal = colorBin(palette = co,
+         domain = t.dc$Result, bins = c(0,200,400,600,800,1000,
+                                        5000,10000,50000))
+
+# overwite t argument inside the function for the legend to display time frame
+if(t == 3){t = "(1980-2014)"}
+if(t == 2){t = "(1940-1980)"}
+if(t == 1){t = "(1902-1940)"}
+
+# generate map assocaited with time frame t and depth d
+map = leaflet(data = ptsdf) 
+map = addTiles(map)
+map %>%
+  addCircleMarkers(map,
+    lng = well_coords[t.dc.pts,1], # longitude
+    lat = well_coords[t.dc.pts,2], # latitude
+    radius = 4, # fixed radius size
+    color = ~pal(Result),
+    stroke = FALSE, 
+    fillOpacity = 0.9,
+    popup = paste(as.character(ptsdf$Result), 
+                  "mg/L TDS", 
+                  by = " ")
+  ) %>%
+  
+  addLegend("topright", pal = pal,
+            values = ~Result,
+            title = paste(d, t, sep = " "), # legend displays time frame and depth class as title
+            labFormat = labelFormat(suffix = " mg/L"),
+            opacity = 1
+  ) %>%
+  
+  addProviderTiles(providers$Esri.WorldTerrain) # override default map
+}
+```
+
+
+## Apply Map Function
+```{r Apply Map Function}
+# loop over time frames (1-3) and depths (shallow, deep)
+for(i in 1:3){
+  for(j in c("Shallow", "Deep")){
+    print(list(map.TDS(i,j)))
+  }
+}
+
+```
+
+
+
+
