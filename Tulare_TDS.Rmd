@@ -3,6 +3,7 @@ title: "Tulare Basin Inorganic Water Quality Maps"
 author: "Rich Pauloo"
 date: "July 23, 2017"
 output: html_document
+bibliography: Tulare_TDS_ref.bib
 ---
 
 ```{r setup, include=FALSE}
@@ -11,12 +12,12 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ##### This analysis explores inorganic (TDS) groundwater contamination in the Tulare Basin, California. Data was generously provided by [CV-SALTS](https://www.cvsalinity.org/) and [CDM Smith](https://cdmsmith.com/), and aggregated from:
 
-* United States Geologic Survey
-* California Department of Public Health  
-* Groundwater Ambient Monitoring and Assessment Program  
-* Environmental Defense Fund  
-* California Department of Water Resources  
-* independent dairy farms monitoring wells  
+* United States Geologic Survey[^1]
+* California Department of Public Health[^2] 
+* Groundwater Ambient Monitoring and Assessment Program[^3]  
+* Environmental Defense Fund[^4]
+* California Department of Water Resources[^5]
+* independent dairy farm monitoring wells
 
 ##### Data ranges from 1902 - 2014. Later years (1980 - 2014) are much more data rich than early years (1902 - 1940).  
 
@@ -25,8 +26,9 @@ knitr::opts_chunk$set(echo = TRUE)
   
   
 ## Set working directory, load requried packages, and load data
-```{r set wd, load required packages, and load data, warnings = FALSE, messages = FALSE, results="hide"}
-setwd("E:/rpauloo/Documents/GitHub/Contaminant-Mapping")
+```{r set wd, load required packages, and load data, warning = FALSE, messages = FALSE, results="hide", errors = FALSE}
+#setwd("E:/rpauloo/Documents/GitHub/Contaminant-Mapping")
+setwd("/Users/richpauloo/Documents/GitHub/Contaminant Mapping/Contaminant-Mapping")
 
 required.packages <- c("sp", "XML", "rgdal", "rgeos", "raster", "ggplot2", 
                        "dismo", "leaflet", "RColorBrewer", "classInt")
@@ -41,7 +43,7 @@ dat = dat[, c("Well_ID", "IAZ", "Database", "Samp_Date",
 
 
 ## Clean Data
-```{r Clean data, warnings = FALSE, messages = FALSE}
+```{r Clean data, warning = FALSE, messages = FALSE, results = "hide"}
 library(plyr)
 str(dat)
 
@@ -76,21 +78,12 @@ unique(fildat$DepthClass) # shows that Deep and Shallow are the only depth class
 records.trimmed = nrow(dat) - nrow(fildat) # trimmed 23,209 observations without a depth class
 
 # ddply by well_ID, year, depthclass, and tframe and take Result means 
-columns = c("Well_ID", "DepthClass", "tframe", "Latitude", "Longitude")
+columns = c("Well_ID", "DepthClass", "tframe", "Latitude", "Longitude", "Database")
 plydat = ddply(fildat, columns, summarize, Result = round(mean(Result), digits=2))
 ```
 
 
-## Data Analysis and creation of spatial points df
-```{r create spatial points df, warnings = FALSE, messages = FALSE}
-well_coords = cbind(plydat$Longitude, plydat$Latitude)
-pts = SpatialPoints(well_coords)
-# deinfe color palette to be used. blue values correspond to fresh water, red to salty water
-co = c("blue","steelblue2","seashell1","orangered2","red")
-```
-
-
-## Histogram of all results
+## Histograms of TDS measurements
 ##### Data is heavily skewed to the right. This skew blurs interesting data in the freshwater 0 - 1,000 mg/L range. Bin sizes in the final map should reflect this distribution of data and not bias the graph towards the outliers. A lognormal plot is insufficient because TDS is typically not reported in log scale.
 ```{r Histogram of all results, warnings = FALSE, messages = FALSE}
 ggplot(plydat, aes(Result)) + 
@@ -108,25 +101,42 @@ ggplot(plydat, aes(logResult)) +
 ```
 
 
+## Create Spatial Points and Color Palette
+```{r create spatial points df, warnings = FALSE, messages = FALSE}
+well_coords = cbind(plydat$Longitude, plydat$Latitude)
+pts = SpatialPoints(well_coords)
+# deinfe color palette to be used. blue values correspond to fresh water, red to salty water
+co = c("blue","steelblue2","steelblue1","seashell1","orangered2","red")
+```
+
+
+## Find Map Center for setView
+```{r find map center}
+latCenter = mean(subset(plydat, plydat$DepthClass == "Deep" & plydat$tframe == 3)$Latitude) - .23 # .23 is not arbitrary. it centers the data
+lonCenter = mean(subset(plydat, plydat$DepthClass == "Deep" & plydat$tframe == 3)$Longitude) 
+```
+
+
 ## Define Map Function
 ```{r map function, warnings = FALSE, messages = FALSE}
 # filter plydat for only observations in time frame t and depth class d
 map.TDS = function(t, d){
-t.dc = plydat[, c(1:3,6)]
-t.dc = subset(t.dc, DepthClass == d & 
+
+# create time and depth class (t.d) subset for the t and d arguments  
+t.d = subset(plydat, DepthClass == d & 
                     tframe == t) # remove lat and long from df, and filter for desired results
 
 # create logical vector for all t and d indexes to extract coordinates of these observations
-t.dc.pts = ifelse(plydat$DepthClass == d & 
+t.d.pts = ifelse(plydat$DepthClass == d & 
                   plydat$tframe == t, TRUE, FALSE)
 
 # use logical vector to subset well_coords, and create spatial points data frame for time frame t and depth d
-ptsdf = SpatialPointsDataFrame(pts[t.dc.pts , ], data = t.dc)
+ptsdf = SpatialPointsDataFrame(pts[t.d.pts , ], data = t.d)
 
 # define palette based on time frame t and depth class d observations
 # set bins with a vector of breaks, so they are fine from 0 - 1,000 and coarse from 1,000 - 50,000
 pal = colorBin(palette = co,
-         domain = t.dc$Result, bins = c(0,200,400,600,800,1000,
+         domain = t.d$Result, bins = c(0,200,400,600,800,1000,
                                         5000,10000,50000))
 
 # overwite t argument inside the function for the legend to display time frame
@@ -139,30 +149,37 @@ map = leaflet(data = ptsdf)
 map = addTiles(map)
 map %>%
   addCircleMarkers(map,
-    lng = well_coords[t.dc.pts,1], # longitude
-    lat = well_coords[t.dc.pts,2], # latitude
+    lng = well_coords[t.d.pts,1], # longitude
+    lat = well_coords[t.d.pts,2], # latitude
     radius = 4, # fixed radius size
     color = ~pal(Result),
     stroke = FALSE, 
     fillOpacity = 0.8,
-    popup = paste(as.character(ptsdf$Result), 
-                  "mg/L TDS", 
-                  by = " ")
+    popup = paste(ptsdf$Result, " mg/L TDS", "<br>",
+                  "Database: ", ptsdf$Database, "<br>",
+                  "Well ID: ", ptsdf$Well_ID, "<br>",
+                  "Latitude: ", ptsdf$Latitude, "<br>",
+                  "Longitude: ", ptsdf$Longitude)
   ) %>%
   
-  addLegend("topright", pal = pal,
+  addLegend("topright", pal = pal, # use custom palette
             values = ~Result,
             title = paste(d, t, sep = " "), # legend displays time frame and depth class as title
             labFormat = labelFormat(suffix = " mg/L"),
             opacity = 1
   ) %>%
   
-  addProviderTiles(providers$Esri.WorldTerrain) # override default map
+  addProviderTiles(providers$Esri.WorldTerrain # override default map with ESRI world terrain map
+
+  ) %>%
+  
+  setView(lng = lonCenter, lat = latCenter, zoom = 8) # iteratively changed zoom until it centered on the data
+
 }
 ```
 
 
-```{r Apply Map Function}
+```{r Apply Map Function, echo = FALSE, results = "hide", warning = FALSE}
 # loop over time frames (1-3) and depths (shallow, deep)
 for(i in 1:3){
   for(j in c("Shallow", "Deep")){
@@ -172,56 +189,78 @@ for(i in 1:3){
 
 ```
 
-## Specify character vectors for plotting depth
-```{r, warnings = FALSE, messages = FALSE}
+
+```{r, warnings = FALSE, messages = FALSE, echo = FALSE}
+# Specify Character Vectors for Plotting Depth - only for .Rmd file. otherwise, plotting in a loop (above) is faster to troubleshoot
 d1 = "Shallow"
 d2 = "Deep"
 ```
+  
+  
+# Results  
 
-
-## Shallow Aquifer (1902 - 1940)
-##### Click on points to view TDS values.
-```{r, warnings = FALSE, messages = FALSE}
+*****
+# (1902 - 1940)
+  
+## Shallow Aquifer
+##### Blue points correspond to fresh water (< 1,000 mg/L TDS), and red points correspond to salty water (> 1,000 mg/L TDS). Click on points to view more information.
+```{r, warnings = FALSE, messages = FALSE, echo = FALSE, warning = FALSE}
 map.TDS(1, d1)
 ```
 
 
-## Deep Aquifer (1902 - 1940)
-##### Click on points to view TDS values.
-```{r, warnings = FALSE, messages = FALSE}
+## Deep Aquifer
+##### Blue points correspond to fresh water (< 1,000 mg/L TDS), and red points correspond to salty water (> 1,000 mg/L TDS). Click on points to view more information.
+```{r, warnings = FALSE, messages = FALSE, echo = FALSE, warning = FALSE}
 map.TDS(1, d2)
 ```
 
-
-## Shallow Aquifer (1940 - 1980)
-##### Click on points to view TDS values.
-```{r, warnings = FALSE, messages = FALSE}
+*****
+*****
+# (1940 - 1980)
+  
+## Shallow Aquifer
+##### Blue points correspond to fresh water (< 1,000 mg/L TDS), and red points correspond to salty water (> 1,000 mg/L TDS). Click on points to view more information.
+```{r, warnings = FALSE, messages = FALSE, echo = FALSE, warning = FALSE}
 map.TDS(2, d1)
 ```
 
 
-## Deep Aquifer (1940 - 1980)
-##### Click on points to view TDS values.
-```{r, warnings = FALSE, messages = FALSE}
+## Deep Aquifer 
+##### Blue points correspond to fresh water (< 1,000 mg/L TDS), and red points correspond to salty water (> 1,000 mg/L TDS). Click on points to view more information.
+```{r, warnings = FALSE, messages = FALSE, echo = FALSE, warning = FALSE}
 map.TDS(2, d2)
 ```
 
-
-## Shallow Aquifer (1980 - 2014)
-##### Click on points to view TDS values.
-```{r, warnings = FALSE, messages = FALSE}
+*****
+*****
+# (1980 - 2014)
+  
+## Shallow Aquifer 
+##### Blue points correspond to fresh water (< 1,000 mg/L TDS), and red points correspond to salty water (> 1,000 mg/L TDS). Click on points to view more information.
+```{r, warnings = FALSE, messages = FALSE, echo = FALSE, warning = FALSE}
 map.TDS(3, d1)
 ```
 
 
-## Deep Aquifer (1980 - 2014)
-##### Click on points to view TDS values.
-```{r, warnings = FALSE, messages = FALSE}
+## Deep Aquifer 
+##### Blue points correspond to fresh water (< 1,000 mg/L TDS), and red points correspond to salty water (> 1,000 mg/L TDS). Click on points to view more information.
+```{r, warnings = FALSE, messages = FALSE, echo = FALSE, warning = FALSE}
 map.TDS(3, d2)
 ```
 
 
+## Appendix: Depth Class
+#### Exerpt from “Initial Conceptual Model (ICM) Technical Services Tasks 7 and 8 – Salt and Nitrate Analysis for the Central Valley Floor and a Focused Analysis of Modesto and Kings Subregions Final Report.” [@LarryWalkerAssociates2013]:
+>Wells were classified into three depth classes (Shallow, Deep, and Unknown) based on information provided by the original source, as shown in Table 3-2. Most wells in the database did not contain quantitative information on well depth or screened interval; however, other information such as well type was used when available to infer the depth from which a well was sampled. Only the USGS database contained quantitative information regarding well depth. For wells lacking a specified value of well depth, the well type was used to infer the depth (see Table 3-2 for examples). Wells in the DWR, GeotrackerGAMA, and RWQCB WDR Dairy Data databases sometimes contain a description of the well type which enabled categorization of the well into a depth class. All wells from the DPH database were assumed to be drinking water supply wells.
+Irrigation/agricultural38, industrial, and municipal supply wells were classified as “Deep” whereas domestic wells and monitoring wells were classified as “Shallow”. All DPH wells were therefore classified as “Deep” as these were all assumed to be drinking water supply wells. All other well types were classified as “Unknown”.
+A large number of USGS wells provided numerical values for well depth; therefore, these were used when provided. USGS wells were assigned a depth class based on the 20-year travel depth for a particular CVHM cell that it was located within. Wells with a depth less than the 20-year travel depth were classified as “Shallow,” and those below the 20-year travel depth were classified as “Deep”. Wells without depth information or a well type were classified as “Unknown”. 
+
+## References
 
 
-
-
+[^1]: [United States Geologic Survey](https://www.usgs.gov/)
+[^2]: [California Department of Public Health](https://www.cdph.ca.gov/)
+[^3]: [Groundwater Ambient Monitoring and Assessment Program](http://www.swrcb.ca.gov/gama/)
+[^4]: [Environmental Defense Fund](https://www.edf.org/) 
+[^5]: [California Department of Water Resources](http://www.water.ca.gov/)
