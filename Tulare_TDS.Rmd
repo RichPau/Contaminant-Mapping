@@ -83,6 +83,21 @@ plydat = ddply(fildat, columns, summarize, Result = round(mean(Result), digits=2
 ```
 
 
+## Barplot of Data Sources Used
+```{r data sources, warning = FALSE}
+ggplot(dat, aes(Database)) + 
+  geom_histogram(stat="count") +
+  theme_bw() + 
+  ggtitle("Database Count Considered for Analysis")
+
+ggplot(plydat, aes(Database)) + 
+  geom_histogram(stat="count") +
+  theme_bw() + 
+  ggtitle("Database Count Used in Analysis after Subsetting") # lost "Unknown" depth class and averaged many data for the same well
+
+```
+
+
 ## Histograms of TDS measurements
 ##### Data is heavily skewed to the right. This skew blurs interesting data in the freshwater 0 - 1,000 mg/L range. Bin sizes in the final map should reflect this distribution of data and not bias the graph towards the outliers. A lognormal plot is insufficient because TDS is typically not reported in log scale.
 ```{r Histogram of all results, warnings = FALSE, messages = FALSE}
