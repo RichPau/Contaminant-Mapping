@@ -19,7 +19,7 @@ required.packages <- c("sp", "XML", "rgdal", "rgeos", "raster",
                        "dismo", "leaflet", "RColorBrewer", "classInt")
 lapply(required.packages, library, character.only = TRUE)
 
-dat = read.csv(file = "tulare_gw_qual_subset.csv", stringsAsFactors = FALSE)
+dat = read.csv(file = "SJV_decadal_gw_qual.csv", stringsAsFactors = FALSE)
 ```
 
 

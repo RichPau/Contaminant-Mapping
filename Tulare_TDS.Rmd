@@ -94,9 +94,16 @@ co = c("blue","steelblue2","seashell1","orangered2","red")
 ##### Data is heavily skewed to the right. This skew blurs interesting data in the freshwater 0 - 1,000 mg/L range. Bin sizes in the final map should reflect this distribution of data and not bias the graph towards the outliers. A lognormal plot is insufficient because TDS is typically not reported in log scale.
 ```{r Histogram of all results, warnings = FALSE, messages = FALSE}
 ggplot(plydat, aes(Result)) + 
-  geom_histogram(binwidth = 100) + 
+  geom_histogram(bins = 50) + 
   xlab("TDS (mg/L)") +
   ggtitle("Histogram of TDS observations in the Tulare Basin (1902-2014)") +
+  theme_bw()
+
+plydat$logResult = log10(plydat$Result)
+ggplot(plydat, aes(logResult)) + 
+  geom_histogram(bins = 50) + 
+  xlab("log TDS (mg/L)") +
+  ggtitle("Log Scale Histogram of TDS observations in the Tulare Basin (1902-2014)") +
   theme_bw()
 ```
 
@@ -155,7 +162,7 @@ map %>%
 ```
 
 
-```{r Apply Map Function, include = FALSE}
+```{r Apply Map Function}
 # loop over time frames (1-3) and depths (shallow, deep)
 for(i in 1:3){
   for(j in c("Shallow", "Deep")){
